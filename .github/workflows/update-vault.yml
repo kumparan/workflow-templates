@@ -1,0 +1,56 @@
+name: Update Vault Secrets
+
+on:
+  workflow_call:
+    inputs:
+      service_name:
+        description: 'Service name'
+        required: true
+        type: string
+      build_tag:
+        description: 'Build tag'
+        required: true
+        type: string
+      environment:
+        description: 'Deployment environment'
+        required: true
+        type: string
+    secrets:
+      VAULT_UPDATE_TOKEN:
+        required: true
+
+jobs:
+  update-vault:
+    name: Update Vault
+    runs-on: [self-hosted]
+    steps:
+      - name: Update Vault secret
+        run: |
+          set -xe
+          echo "Updating Vault secret..."
+          
+          # Wait for helper service to be ready
+          c=0
+          STATUS=0
+          while [ $STATUS != 200 ]; do
+            sleep 5
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://helper.kumpar.com/ping || true)
+            echo "Helper service status: $STATUS"
+            ((c++)) && ((c==3)) && exit 1
+          done
+          
+          # Call helper service to update vault
+          curl --location 'http://helper.kumpar.com/bash' \
+            --header 'Content-Type: application/json' \
+            --data-raw "{
+                \"user\": \"kresno.hadinata@kumparan.com\",
+                \"token\": \"${{ secrets.VAULT_UPDATE_TOKEN }}\",
+                \"additional\": {
+                  \"flag\": \"updateVaultSecretjenkins\",
+                  \"environment\": \"${{ inputs.environment }}\",
+                  \"servicename\": \"${{ inputs.service_name }}\",
+                  \"target\": \"${{ github.run_id }}\"
+                }
+            }"
+          
+          echo "Vault secret updated successfully"

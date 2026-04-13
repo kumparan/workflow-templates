@@ -1,0 +1,99 @@
+name: Notify Deployment Failure
+
+on:
+  workflow_call:
+    inputs:
+      service_name:
+        description: 'Service name'
+        required: true
+        type: string
+      build_tag:
+        description: 'Build tag'
+        required: true
+        type: string
+      environment:
+        description: 'Deployment environment'
+        required: true
+        type: string
+      project:
+        description: 'Project type'
+        required: false
+        type: string
+        default: 'BACKEND'
+      channel_staging:
+        description: 'Slack channel for staging'
+        required: false
+        type: string
+        default: '#deployment-v4'
+      channel_production:
+        description: 'Slack channel for production'
+        required: false
+        type: string
+        default: '#be-deployment-production'
+    secrets:
+      SLACK_BOT_TOKEN:
+        required: true
+      SLACK_WEBHOOK_URL:
+        required: true
+
+jobs:
+  notify-failure:
+    name: Notify Failure
+    runs-on: [self-hosted]
+    steps:
+      - name: Determine email for Slack
+        id: email
+        run: |
+          if [[ "${{ inputs.environment }}" == "production" && "${{ github.ref_name }}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            EMAIL="${{ github.actor }}"
+          elif [[ "${{ github.ref_name }}" =~ production ]]; then
+            EMAIL="${{ github.actor }}"
+          else
+            EMAIL="${{ github.actor }}"
+          fi
+          echo "email=${EMAIL}" >> $GITHUB_OUTPUT
+
+      - name: Get Slack user ID
+        id: slack-user
+        run: |
+          SLACK_USER_ID=$(curl -s \
+            -H "Authorization: Bearer ${{ secrets.SLACK_BOT_TOKEN }}" \
+            "https://slack.com/api/users.lookupByEmail?email=${{ steps.email.outputs.email }}" \
+            | jq -r '.user.id // "unknown"')
+          echo "slack_user_id=${SLACK_USER_ID}" >> $GITHUB_OUTPUT
+          echo "Slack User ID: ${SLACK_USER_ID}"
+
+      - name: Prepare notification channel
+        id: channel
+        run: |
+          if [[ "${{ inputs.environment }}" == "production" ]]; then
+            CHANNEL="${{ inputs.channel_production }}"
+          else
+            CHANNEL="${{ inputs.channel_staging }}"
+          fi
+          echo "channel=${CHANNEL}" >> $GITHUB_OUTPUT
+          echo "Notification Channel: ${CHANNEL}"
+
+      - name: Send Slack notification - Failure
+        run: |
+          SLACK_USER_ID="${{ steps.slack-user.outputs.slack_user_id }}"
+          CHANNEL="${{ steps.channel.outputs.channel }}"
+          
+          curl -X POST -H 'Content-type: application/json' --data "{
+            \"channel\": \"${CHANNEL}\",
+            \"attachments\": [
+              {
+                \"mrkdwn_in\": [\"text\"],
+                \"color\": \"#FF0000\",
+                \"title\": \":x: DEPLOYMENT FAILED: | ${{ inputs.project }} | ${{ inputs.environment }}\",
+                \"fields\": [
+                  {\"title\": \"Service Name\", \"value\": \"${{ inputs.service_name }}\", \"short\": true},
+                  {\"title\": \"Build Tag\", \"value\": \"${{ inputs.build_tag }}\", \"short\": true},
+                  {\"title\": \"Environment\", \"value\": \"${{ inputs.environment }}\", \"short\": true},
+                  {\"title\": \"Trigger\", \"value\": \"${{ github.event_name }}\", \"short\": true},
+                  {\"title\": \"Deployed by\", \"value\": \"<@${SLACK_USER_ID}> | <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|Workflow Details>\", \"short\": false}
+                ]
+              }
+            ]
+          }" ${{ secrets.SLACK_WEBHOOK_URL }}
+        continue-on-error: true

@@ -1,0 +1,37 @@
+name: Clean Up Non-Production Tags
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        type: string
+
+jobs:
+  clean-up-tag:
+    name: Clean Up Tags
+    runs-on: [self-hosted]
+    if: inputs.environment != 'production'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Delete staging tag
+        run: |
+          TAG_TO_DELETE="${{ github.ref_name }}"
+          echo "Deleting tag: ${TAG_TO_DELETE}"
+          
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Delete local tag
+          git tag -d "${TAG_TO_DELETE}" || true
+          
+          # Delete remote tag
+          git push origin --delete "${TAG_TO_DELETE}" || true
+          
+          echo "Tag '${TAG_TO_DELETE}' deleted successfully"
+        continue-on-error: true

@@ -1,0 +1,100 @@
+name: Prepare Deployment
+
+on:
+  workflow_call:
+    inputs:
+      project:
+        description: 'Project type (BACKEND, FRONTEND, DATA, QA, SRE)'
+        required: false
+        type: string
+        default: 'BACKEND'
+    outputs:
+      build_tag:
+        description: 'Build tag extracted from ref'
+        value: ${{ jobs.prepare.outputs.build_tag }}
+      environment:
+        description: 'Environment (production or staging)'
+        value: ${{ jobs.prepare.outputs.environment }}
+      service_name:
+        description: 'Service name extracted from repository'
+        value: ${{ jobs.prepare.outputs.service_name }}
+      should_deploy:
+        description: 'Whether deployment should proceed'
+        value: ${{ jobs.prepare.outputs.should_deploy }}
+
+jobs:
+  prepare:
+    name: Preparing Deployment - ${{ github.ref_name }}
+    runs-on: [self-hosted]
+    outputs:
+      build_tag: ${{ steps.tag.outputs.build_tag }}
+      should_deploy: ${{ steps.check.outputs.should_deploy }}
+      service_name: ${{ steps.service.outputs.service_name }}
+      environment: ${{ steps.env.outputs.environment }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract service name from repository
+        id: service
+        run: |
+          SERVICE_NAME="${{ github.repository }}"
+          SERVICE_NAME="${SERVICE_NAME##*/}"
+          SERVICE_NAME="${SERVICE_NAME}-service"
+          echo "service_name=${SERVICE_NAME}" >> $GITHUB_OUTPUT
+          echo "Service name: ${SERVICE_NAME}"
+
+      - name: Determine build tag
+        id: tag
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && -n "${{ github.event.inputs.version_tag }}" ]]; then
+            BUILD_TAG="${{ github.event.inputs.version_tag }}"
+          elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            BUILD_TAG="$(echo "${{ github.ref }}" | sed 's|refs/tags/||')"
+          else
+            BUILD_TAG="${{ github.sha }}"
+          fi
+          echo "build_tag=${BUILD_TAG}" >> $GITHUB_OUTPUT
+          echo "Build tag: ${BUILD_TAG}"
+
+      - name: Determine environment
+        id: env
+        run: |
+          BUILD_TAG="${{ steps.tag.outputs.build_tag }}"
+          
+          # Check if tag matches semantic versioning pattern v*.*.* or production-*
+          if [[ ${BUILD_TAG} =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || [[ ${BUILD_TAG} =~ ^production- ]]; then
+            ENVIRONMENT="production"
+          else
+            ENVIRONMENT="staging"
+          fi
+          
+          echo "environment=${ENVIRONMENT}" >> $GITHUB_OUTPUT
+          echo "Environment: ${ENVIRONMENT}"
+
+      - name: Check deployment conditions
+        id: check
+        run: |
+          DEPLOY=false
+          
+          # Deploy on staging-*, production-*, sre-* tags or semantic version tags
+          if [[ "${{ github.ref }}" == refs/tags/staging-* || "${{ github.ref }}" == refs/tags/production-* || "${{ github.ref }}" == refs/tags/sre-* || "${{ github.ref }}" =~ ^refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            DEPLOY=true
+            echo "Deployment triggered: Tag push (staging-*, production-*, sre-* or v*.*.* version tags)"
+          fi
+          
+          # Manual trigger
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            DEPLOY=true
+            echo "Deployment triggered: Manual workflow_dispatch"
+          fi
+          
+          echo "should_deploy=${DEPLOY}" >> $GITHUB_OUTPUT
+
+      - name: Validate environment
+        run: |
+          echo "Validation: Checking environment setup..."
+          echo "Service: ${{ steps.service.outputs.service_name }}"
+          echo "Build Tag: ${{ steps.tag.outputs.build_tag }}"
+          echo "Environment: ${{ steps.env.outputs.environment }}"
+          echo "Should Deploy: ${{ steps.check.outputs.should_deploy }}"
