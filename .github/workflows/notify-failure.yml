@@ -41,27 +41,27 @@ jobs:
     name: Notify Failure
     runs-on: [self-hosted]
     steps:
-      - name: Determine email for Slack
-        id: email
-        run: |
-          if [[ "${{ inputs.environment }}" == "production" && "${{ github.ref_name }}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            EMAIL="${{ github.actor }}"
-          elif [[ "${{ github.ref_name }}" =~ production ]]; then
-            EMAIL="${{ github.actor }}"
-          else
-            EMAIL="${{ github.actor }}"
-          fi
-          echo "email=${EMAIL}" >> $GITHUB_OUTPUT
+      # - name: Determine email for Slack
+      #   id: email
+      #   run: |
+      #     if [[ "${{ inputs.environment }}" == "production" && "${{ github.ref_name }}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      #       EMAIL="${{ github.actor }}"
+      #     elif [[ "${{ github.ref_name }}" =~ production ]]; then
+      #       EMAIL="${{ github.actor }}"
+      #     else
+      #       EMAIL="${{ github.actor }}"
+      #     fi
+      #     echo "email=${EMAIL}" >> $GITHUB_OUTPUT
 
-      - name: Get Slack user ID
-        id: slack-user
-        run: |
-          SLACK_USER_ID=$(curl -s \
-            -H "Authorization: Bearer ${{ secrets.SLACK_BOT_TOKEN }}" \
-            "https://slack.com/api/users.lookupByEmail?email=${{ steps.email.outputs.email }}" \
-            | jq -r '.user.id // "unknown"')
-          echo "slack_user_id=${SLACK_USER_ID}" >> $GITHUB_OUTPUT
-          echo "Slack User ID: ${SLACK_USER_ID}"
+      # - name: Get Slack user ID
+      #   id: slack-user
+      #   run: |
+      #     SLACK_USER_ID=$(curl -s \
+      #       -H "Authorization: Bearer ${{ secrets.SLACK_BOT_TOKEN }}" \
+      #       "https://slack.com/api/users.lookupByEmail?email=${{ steps.email.outputs.email }}" \
+      #       | jq -r '.user.id // "unknown"')
+      #     echo "slack_user_id=${SLACK_USER_ID}" >> $GITHUB_OUTPUT
+      #     echo "Slack User ID: ${SLACK_USER_ID}"
 
       - name: Prepare notification channel
         id: channel
@@ -76,7 +76,7 @@ jobs:
 
       - name: Send Slack notification - Failure
         run: |
-          SLACK_USER_ID="${{ steps.slack-user.outputs.slack_user_id }}"
+          # SLACK_USER_ID="${{ steps.slack-user.outputs.slack_user_id }}"
           CHANNEL="${{ steps.channel.outputs.channel }}"
           
           curl -X POST -H 'Content-type: application/json' --data "{
@@ -91,7 +91,7 @@ jobs:
                   {\"title\": \"Build Tag\", \"value\": \"${{ inputs.build_tag }}\", \"short\": true},
                   {\"title\": \"Environment\", \"value\": \"${{ inputs.environment }}\", \"short\": true},
                   {\"title\": \"Trigger\", \"value\": \"${{ github.event_name }}\", \"short\": true},
-                  {\"title\": \"Deployed by\", \"value\": \"<@${SLACK_USER_ID}> | <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|Workflow Details>\", \"short\": false}
+                  {\"title\": \"Deployed by\", \"value\": \"${{ github.actor }}> | <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|Workflow Details>\", \"short\": false}
                 ]
               }
             ]
